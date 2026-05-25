@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import h5py
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.optimize import curve_fit
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
+try:
+    import h5py
+except ModuleNotFoundError:
+    h5py = None
+
+try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:
+    plt = None
+
+try:
+    from scipy.optimize import curve_fit
+except ModuleNotFoundError:
+    curve_fit = None
 
 
 @dataclass
@@ -245,6 +259,22 @@ def main() -> None:
     parser.add_argument("--pixel-pitch-um", type=float, default=2.2, help="Camera pixel pitch in µm/pixel")
     parser.add_argument("--show-profile-fits", action="store_true", help="Show Gaussian fits for each file/profile")
     args = parser.parse_args()
+
+    missing = []
+    if h5py is None:
+        missing.append("h5py")
+    if np is None:
+        missing.append("numpy")
+    if plt is None:
+        missing.append("matplotlib")
+    if curve_fit is None:
+        missing.append("scipy")
+    if missing:
+        raise SystemExit(
+            "Missing required dependencies: "
+            + ", ".join(missing)
+            + ". Install with: pip install h5py matplotlib scipy"
+        )
 
     folder = Path(args.folder_path)
     if not folder.exists() or not folder.is_dir():
