@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,22 +9,27 @@ from typing import Dict, List, Tuple
 
 try:
     import numpy as np
-except ModuleNotFoundError:
+except ImportError:
     np = None
 try:
     import h5py
-except ModuleNotFoundError:
+except ImportError:
     h5py = None
 
 try:
     import matplotlib.pyplot as plt
-except ModuleNotFoundError:
+except ImportError:
     plt = None
 
 try:
     from scipy.optimize import curve_fit
-except ModuleNotFoundError:
+except ImportError:
     curve_fit = None
+
+GAUSSIAN_FWHM_SIGMA_FACTOR = 2.0 * math.sqrt(2.0 * math.log(2.0))
+HALF_MAX_RADIUS_FROM_1E2_RADIUS_FACTOR = math.sqrt(math.log(2.0) / 2.0)
+FWHM_FROM_1E2_RADIUS_FACTOR = 2.0 * HALF_MAX_RADIUS_FROM_1E2_RADIUS_FACTOR
+SCRIPT_DESCRIPTION = "Analyze laser beam profiles from HDF5 image data to compute M² and propagation parameters"
 
 
 @dataclass
@@ -85,8 +91,8 @@ def fit_profile(profile: np.ndarray, pixel_pitch_um: float) -> Dict[str, float]:
     r_squared = 1.0 - (ss_res / ss_tot if ss_tot != 0 else 0.0)
 
     sigma_px = abs(float(popt[2]))
-    e2_radius_um = np.sqrt(2.0) * sigma_px * pixel_pitch_um
-    fwhm_um = 2.0 * np.sqrt(2.0 * np.log(2.0)) * sigma_px * pixel_pitch_um
+    e2_radius_um = 2.0 * sigma_px * pixel_pitch_um
+    fwhm_um = GAUSSIAN_FWHM_SIGMA_FACTOR * sigma_px * pixel_pitch_um
 
     total = float(np.sum(y))
     if total <= 0:
@@ -116,7 +122,7 @@ def calculate_m2(positions_cm: np.ndarray, beam_radii_um: np.ndarray, wavelength
     z_m = positions_cm[valid_mask] * 0.01
     w_squared_m2 = (beam_radii_um[valid_mask] * 1e-6) ** 2
 
-    min_idx = int(np.argmin(beam_radii_um[valid_mask]))
+    min_idx = np.argmin(beam_radii_um[valid_mask])
     z0_m = z_m[min_idx]
     z_shifted_m = z_m - z0_m
 
@@ -251,7 +257,7 @@ def print_summary_table(rows: List[Tuple[str, str, str]]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Beam profiling script converted from BeamChar2 notebook")
+    parser = argparse.ArgumentParser(description=SCRIPT_DESCRIPTION)
     parser.add_argument("folder_path", help="Path to folder containing .hdf5 files")
     parser.add_argument("--base-filename", default="BeamProfile800fixed", help="Base filename prefix")
     parser.add_argument("--file-extension", default=".hdf5", help="File extension")
@@ -273,7 +279,7 @@ def main() -> None:
         raise SystemExit(
             "Missing required dependencies: "
             + ", ".join(missing)
-            + ". Install with: pip install h5py matplotlib scipy"
+            + ". Install with: pip install numpy h5py matplotlib scipy"
         )
 
     folder = Path(args.folder_path)
@@ -386,8 +392,8 @@ def main() -> None:
     peak_irradiance_per_watt = calculate_peak_irradiance_per_watt_w_m2(m2_h.w0_um, m2_v.w0_um)
 
     w_eff_um = float(np.sqrt(m2_h.w0_um * m2_v.w0_um))
-    r_fwhm_eff_um = float(np.sqrt(np.log(2.0) / 2.0) * w_eff_um)
-    pib_fwhm = pib_fraction(r_fwhm_eff_um, w_eff_um)
+    r_halfmax_eff_um = float(HALF_MAX_RADIUS_FROM_1E2_RADIUS_FACTOR * w_eff_um)
+    pib_halfmax = pib_fraction(r_halfmax_eff_um, w_eff_um)
     pib_1e2 = pib_fraction(w_eff_um, w_eff_um)
     pib_2x = pib_fraction(2.0 * w_eff_um, w_eff_um)
 
@@ -398,8 +404,8 @@ def main() -> None:
             ("M² Total", f"{m2_total:.3f} ± {m2_total_unc:.3f}", "-"),
             ("Waist Horizontal (w0)", f"{m2_h.w0_um:.2f} ± {m2_h.w0_uncertainty_um:.2f}", "µm"),
             ("Waist Vertical (w0)", f"{m2_v.w0_um:.2f} ± {m2_v.w0_uncertainty_um:.2f}", "µm"),
-            ("FWHM Horizontal @ waist", f"{np.sqrt(2*np.log(2))*m2_h.w0_um:.2f}", "µm"),
-            ("FWHM Vertical @ waist", f"{np.sqrt(2*np.log(2))*m2_v.w0_um:.2f}", "µm"),
+            ("FWHM Horizontal @ waist", f"{FWHM_FROM_1E2_RADIUS_FACTOR * m2_h.w0_um:.2f}", "µm"),
+            ("FWHM Vertical @ waist", f"{FWHM_FROM_1E2_RADIUS_FACTOR * m2_v.w0_um:.2f}", "µm"),
             ("Rayleigh range Horizontal", f"{zR_h_cm:.3f}", "cm"),
             ("Rayleigh range Vertical", f"{zR_v_cm:.3f}", "cm"),
             ("Confocal parameter Horizontal", f"{conf_h_cm:.3f}", "cm"),
@@ -411,9 +417,9 @@ def main() -> None:
             ("Ellipticity", f"{ellipticity:.4f}", "-"),
             ("Astigmatism", f"{astigmatism_cm:.4f}", "cm"),
             ("Peak irradiance @ waist", f"{peak_irradiance_per_watt:.3e}", "W/m² per W"),
-            ("PIB at effective FWHM radius", f"{pib_fwhm*100:.2f}", "%"),
-            ("PIB at effective 1/e² radius", f"{pib_1e2*100:.2f}", "%"),
-            ("PIB at 2× effective 1/e² radius", f"{pib_2x*100:.2f}", "%"),
+            ("PIB at effective half-max radius", f"{pib_halfmax * 100:.2f}", "%"),
+            ("PIB at effective 1/e² radius", f"{pib_1e2 * 100:.2f}", "%"),
+            ("PIB at 2× effective 1/e² radius", f"{pib_2x * 100:.2f}", "%"),
             (
                 "Second-moment width H (D4σ)",
                 f"{np.nanmean(np.array(second_moment_h, dtype=float)):.2f}",
