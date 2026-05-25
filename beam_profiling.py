@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 import argparse
 import math
@@ -264,7 +263,9 @@ def main() -> None:
     parser.add_argument("--wavelength-um", type=float, default=0.8, help="Laser wavelength in µm")
     parser.add_argument("--pixel-pitch-um", type=float, default=2.2, help="Camera pixel pitch in µm/pixel")
     parser.add_argument("--show-profile-fits", action="store_true", help="Show Gaussian fits for each file/profile")
-    args = parser.parse_args()
+    args = parser.parse_args([
+    r"E:\DATA\Beam_Profiling\BeamProfile280825"
+])
 
     missing = []
     if h5py is None:
